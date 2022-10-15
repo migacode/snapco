@@ -1,0 +1,884 @@
+#!/bin/bash
+###############################################################################
+#                                                                             #
+#                        Snap Cleaner and Configurator                        #
+#          ---------------------------------------------------------          #
+#                                                                             #
+#                       (C)opyright bei Michael Gasbers                       #
+#                      MIGANO Professional Web Solutions                      #
+#                                                                             #
+#                             All rights reserved.                            #
+#                                                                             #
+###############################################################################
+#                                                                             #
+# DIESE SOFTWARE WIRD OHNE MÄNGELGEWÄHR UND OHNE JEGLICHE AUSDRÜCKLICHE ODER  #
+# STILLSCHWEIGENDE GARANTIE ZUR VERFÜGUNG GESTELLT, EINSCHLIESSLICH UND OHNE  #
+# EINSCHRÄNKUNG JEGLICHER GARANTIE FÜR DIE GEBRAUCHSTAUGLICHKEIT ODER EIGNUNG #
+# FÜR EINEN BESTIMMTEN ZWECK. ALLE RISIKEN IN BEZUG AUF ERGEBNISSE UND        #
+# LEISTUNG DIESER SOFTWARE WERDEN VOLLSTÄNDIG VOM BENUTZER ÜBERNOMMEN!        #
+#  *************************************************************************  #
+# THIS SOFTWARE IS PROVIDED "AS IS" WITH NO WARRANTIES WHAT SO EVER, WHETHER  #
+# EXPRESSED OR IMPLIED, INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF       #
+# USABILITY OR FITNESS FOR A PARTICULAR PURPOSE. ALL RISKS CONCERNING RESULTS #
+# AND PERFORMANCE OF THIS SOFTWARE ARE ASSUMED COMPLETELY BY THE USER!        #
+#                                                                             #
+###############################################################################
+#                                                                             #
+#  Jegliche Form der Kopie, Veränderung und kommerziellen Verbreitung dieses  #
+#  Scripts oder Teilen davon sowie des Quellcodes ist strengstens verboten!   #
+#  *************************************************************************  #
+#   Any form of copying, modification or commercial distribution of this      #
+#   script or any part thereof or it's sourcecode is strictly prohibited!     #
+#  *************************************************************************  #
+#   Für Anregungen und Fragen nehmen Sie bitte Kontakt mit uns auf über       #
+#   https://migano.de oder per E-Mail an >> kontakt@migano.de <<. Danke.      #
+#                                                                             #
+###############################################################################
+VERSION="1.41"
+# Letzte Änderung: 25.06.2022
+###############################################################################
+
+###############################################################################
+# Benutzername, ID und Home-Verzeichnis ermitteln
+###############################################################################
+if [ $SUDO_USER ]; then MY_USER_NAME="$SUDO_USER"; else MY_USER_NAME=$(whoami); fi
+MY_USER_UID=$(id -u $MY_USER_NAME)
+if [ "$MY_USER_NAME" = "root" ];
+then
+  MY_HOME_DIR="/root"
+else
+  MY_HOME_DIR="/home/$MY_USER_NAME"
+fi
+
+# Datei zur Zwischenspeicherung der Schnappschuss-Liste
+SNAPSHOT_SNAPS_LIST="./snap_snapshot_list"
+
+# Text normal
+black='\033[0;30m'
+red='\033[0;31m'
+green='\033[0;32m'
+yellow='\033[0;33m'
+blue='\033[0;34m'
+purple='\033[0;35m'
+cyan='\033[0;36m'
+white='\033[0;97m'
+# Text hell
+dark_grey='\033[0;90m'
+light_red='\033[0;91m'
+light_green='\033[0;92m'
+light_yellow='\033[0;93m'
+light_blue='\033[0;94m'
+light_purple='\033[0;95m'
+light_cyan='\033[0;96m'
+light_grey='\033[0;37m'
+# Text fett
+bold_black='\033[1;30m'
+bold_red='\033[1;31m'
+bold_green='\033[1;32m'
+bold_yellow='\033[1;33m'
+bold_blue='\033[1;34m'
+bold_purple='\033[1;35m'
+bold_cyan='\033[1;36m'
+bold_white='\033[1;37m'
+bg_blue='\033[44m'
+colors_off='\033[0m'
+# Linienfarbe
+line_color='\033[0;90m'
+
+# --------------
+# Textbausteine
+# --------------
+FULL_LINE="${line_color}$(printf '─%.0s' {1..80})${colors_off}"
+HALF_LINE="${line_color}$(printf '─%.0s' {1..40})${colors_off}"
+FULLSPACE=$(printf '\x20%.0s' {1..80})
+
+OK_TAG="${bold_green}ok${colors_off}"
+ERROR_TAG="${bold_red}Fehler${colors_off}"
+
+###############################################################################
+# Erweiterte Funktion zur Ja/Nein-Abfrage mit optionaler Anzeige einer Datei
+# Rückgaben: 0 = false (Nein)
+#            1 = true (Ja)
+###############################################################################
+function ask_yes_or_no () {
+  QUESTION="$1? [${bold_yellow}j${colors_off}]a, [${bold_yellow}n${colors_off}]ein, [${bold_yellow}a${colors_off}]nzeigen: "
+  FILE_TO_SHOW="$2"
+  if [ "$FILE_TO_SHOW" != "" ];
+  then
+    REG_CHARS="[^JjNnAa]*"
+    echo -e -n "$QUESTION"
+  else
+    REG_CHARS="[^JjNn]*"
+    echo -e -n "$1? [${bold_yellow}j${colors_off}]a oder [${bold_yellow}n${colors_off}]ein: "
+  fi
+  IYN_RESULT=0
+  INPUT_OK=0
+  while [ $INPUT_OK -eq 0 ]
+  do
+    # Eingabe-Schleife --------------------------------------------------------
+    ANSWER=""
+    while [ "$ANSWER" = "" ];
+    do
+      read -N 1 -r -s ANSWER
+      ANSWER=$(echo $ANSWER | sed "s/$REG_CHARS//g")
+    done
+    echo -e "$ANSWER"
+    # Ja ----------------------------------------------------------------------
+    if [ "$ANSWER" = "J" ] ||
+       [ "$ANSWER" = "j" ];
+    then
+      IYN_RESULT=1
+      INPUT_OK=1
+    fi
+    # Nein --------------------------------------------------------------------
+    if [ "$ANSWER" = "N" ] ||
+       [ "$ANSWER" = "n" ];
+    then
+      INPUT_OK=1
+    fi
+    # Datei anzeigen ----------------------------------------------------------
+    if [ "$FILE_TO_SHOW" != "" ];
+    then
+      if [ "$ANSWER" = "A" ] ||
+         [ "$ANSWER" = "a" ];
+      then
+        echo -e "${light_yellow}"
+        more "$FILE_TO_SHOW"
+        echo -e "${colors_off}"
+      fi
+    fi
+    # Wenn eine Datei angezeigt wurde erneut abfragen -------------------------
+    if [ $INPUT_OK -eq 0 ];
+    then
+      if [ "$FILE_TO_SHOW" != "" ];
+      then
+        echo -e -n "$QUESTION"
+      fi
+    fi
+  done
+  return $IYN_RESULT
+}
+
+###############################################################################
+# Löscht die Menü-Zeilen
+###############################################################################
+function clear_menu () {
+  i=0; while [ $i -lt 6 ]; do tput cuu 1 && tput el; ((i+=1)); done
+}
+
+###############################################################################
+# Funktion zur Einfügung von Leerzeichen
+###############################################################################
+function insert_spaces () {
+  i=1
+  while [ $i -lt $1 ];
+  do
+    echo -e -n " "
+    ((i+=1))
+  done
+}
+
+###############################################################################
+# Funktion zur Erzeugung der Snap-Schappschuss-Liste
+###############################################################################
+function create_snapshot_list () {
+  if [ -f "$SNAPSHOT_SNAPS_LIST" ]; then rm -f "$SNAPSHOT_SNAPS_LIST" &>/dev/null; fi
+  LANG=en_US.UTF-8 snap saved | tail --lines=+2 | awk '{print $1, $2, "(A"$3")", "(V"$4")", "(R"$5")", "(S"$6")"}' >> "$SNAPSHOT_SNAPS_LIST"
+}
+
+###############################################################################
+# Funktion zur Anzeige der mit create_snapshot_list erzeugten Liste
+###############################################################################
+function show_snapshot_list () {
+  echo -e -n " ${bold_white}Snap                     Version                     Revision"
+  if [ $1 -eq 0 ];
+  then
+    echo -e ""
+  else
+    echo -e "   Größe"
+  fi
+  echo -e -n "${colors_off}"
+  TOTAL_SIZE=0
+  MAX_SNAPSHOT_NAME=0
+  while read snapset snapname snapage snapversion snaprevision snapsize
+  do
+    # Snap-Set (fortlaufende Nummer der Gruppe von gelöschten Snaps)
+    SNAP_SET_ID="$snapset"
+    # Name
+    SNAP_PKG_NAME="$snapname"
+    echo -e -n " ${SNAP_PKG_NAME:0:25}"
+    ((ANZ_SPACES=26-${#SNAP_PKG_NAME}))
+    insert_spaces $ANZ_SPACES
+    # Version
+    SNAP_VERSION="${snapversion/(V/}"
+    SNAP_VERSION="${SNAP_VERSION/)/}"
+    echo -e -n "${SNAP_VERSION:0:28}"
+    ((ANZ_SPACES=29-${#SNAP_VERSION}))
+    insert_spaces $ANZ_SPACES
+    # Revision
+    SNAP_REVISION="${snaprevision/(R/}"
+    SNAP_REVISION="${SNAP_REVISION/)/}"
+    echo -e -n "${SNAP_REVISION:0:7}"
+    ((ANZ_SPACES=8-${#SNAP_REVISION}))
+    insert_spaces $ANZ_SPACES
+    # Größe
+    if [ $1 -eq 1 ];
+    then
+      FULL_SNAP_PATH="/var/lib/snapd/snapshots/${snapset}_${SNAP_PKG_NAME}_${SNAP_VERSION}_${SNAP_REVISION}.zip"
+      # ALT: SNAP_SIZE=$(ls -l "$FULL_SNAP_PATH" | awk '{print $5}' | xargs)
+      SNAP_SIZE=$(stat -c %s "$FULL_SNAP_PATH")
+      ((TOTAL_SIZE+=SNAP_SIZE))
+      ((SNAP_SIZE=SNAP_SIZE/1024/1024))
+      if [ $SNAP_SIZE -lt 1 ]; then SNAP_SIZE="<1"; fi
+      echo -e "    ${light_yellow}$SNAP_SIZE${colors_off} MB"
+    else
+      echo -e ""
+    fi
+    NEW_LENGTH=0
+    ((NEW_LENGTH+=${#SNAP_PKG_NAME}))
+    ((NEW_LENGTH+=${#SNAP_SET_ID}))
+    if [ $NEW_LENGTH -gt $MAX_SNAPSHOT_NAME ];
+    then
+      MAX_SNAPSHOT_NAME=$NEW_LENGTH
+    fi
+  done < "$SNAPSHOT_SNAPS_LIST"
+}
+
+###############################################################################
+# Funktion zur Anzeige der Kopfzeilen
+###############################################################################
+function show_headlines () {
+  printf %b '\e]10;#eeeeee\a' # Schriftfarbe (VT100) immer hell ;)
+  printf %b '\e]11;#242628\a' # Hintergrundfarbe (VT100) immer dunkel ;)
+  clear
+  HEADLINE_TEXT="${bold_white}${bg_blue}"
+  HEADLINE_TEXT+="$FULLSPACE"$'\n'
+  HEADLINE_TEXT+="                          Snap Cleaner and Configurator                         "$'\n'
+  HEADLINE_TEXT+="${light_blue}${bg_blue}"
+  HEADLINE_TEXT+="                              by Michael G. | v$VERSION                             "$'\n'
+  HEADLINE_TEXT+="$FULLSPACE"
+  HEADLINE_TEXT+="${colors_off}"
+  echo -e "$HEADLINE_TEXT"
+  echo -e ""
+}
+show_headlines
+
+# =============================================================================
+# Grundvoraussetzungen prüfen
+# =============================================================================
+if [ $(id -u) -ne 0 ];
+then
+  echo -e " Bitte als Superuser aufrufen!"
+  exit 1
+fi
+
+if [ $(dpkg-query -W -f='${Status}' "snapd" 2>/dev/null | grep -i -c -E "ok installed") -eq 0 ];
+then
+  echo -e " Es sieht nicht so aus, als wäre eine Snap-Paketverwaltung installiert ... :)"
+  exit 1
+fi
+
+# =============================================================================
+# Falls util-linux noch nicht installiert ist, dies nachholen
+# =============================================================================
+if [ $(dpkg-query -W -f='${Status}' "util-linux" 2>/dev/null | grep -i -c -E "ok installed") -eq 0 ];
+then
+  apt install util-linux -y &>/dev/null
+fi
+
+# =============================================================================
+# Hauptscript
+# =============================================================================
+SCRIPT_ACTION=""
+while [ "$SCRIPT_ACTION" != "E" ];
+do
+
+  # ===========================================================================
+  # Konfiguration
+  # ===========================================================================
+  if [ "$SCRIPT_ACTION" = "K" ];
+  then
+
+    CONF_ACTION=""
+    while [ "$CONF_ACTION" != "Z" ];
+    do
+
+      show_headlines
+      # -----------------------------------------------------------------------
+      # Aktuelle Snap-Einstellungen (Konfiguration) anzeigen
+      # -----------------------------------------------------------------------
+      echo -e " ${bold_blue}Aktuelle Snap-Einstellungen${colors_off}"
+      echo -e ""
+
+      # Bezeichnungen und Kodierung der Snap-Timer-Angaben
+      # ACHTUNG: Namen OHNE Leerzeichen, da diese Felder trennen!
+      NEW_TIMER_NAME=('Snap-Standard' 'Stündlich'      'Täglich'       'Wöchentlich' 'Monatlich' 'Individuell')
+      NEW_TIMER_TEXT=(''              '00:00-24:00/24' '00:00~24:00/1' 'sat'         'sat5'      ''           )
+      WEEKDAY_LIST=('mon' 'tue' 'wed' 'thu' 'fri' 'sat' 'sun')
+      declare -A WEEKDAY_NAMES
+      WEEKDAY_NAMES[mon]="Montag"
+      WEEKDAY_NAMES[tue]="Dienstag"
+      WEEKDAY_NAMES[wed]="Mittwoch"
+      WEEKDAY_NAMES[thu]="Donnerstag"
+      WEEKDAY_NAMES[fri]="Freitag"
+      WEEKDAY_NAMES[sat]="Samstag"
+      WEEKDAY_NAMES[sun]="Sonntag"
+
+      CURRENT_RETAIN=$(snap get system refresh.retain 2>/dev/null)
+      if [ "$CURRENT_RETAIN" = "" ]; then CURRENT_RETAIN="Snap-Standard"; fi
+      echo -e -n " Vorgehaltene Revisionen: ${bold_yellow}$CURRENT_RETAIN${colors_off}"
+      if [ "$CURRENT_RETAIN" = "Snap-Standard" ];
+      then
+        echo -e ""
+      else
+        echo -e " (je Snap)"
+      fi
+
+      # Timer-Angabe in einfach lesbares Format umwandeln
+      CURRENT_TIMER=$(snap get system refresh.timer 2>/dev/null)
+      TIMER_SHOW_DAYS=""
+      if [ "$CURRENT_TIMER" != "" ];
+      then
+        # 1. So übernehmen wie eingetragen (nicht vereinfacht)
+        TIMER_SHOW_NAME="${CURRENT_TIMER}"
+        # 2. Wenn identisch zu einer Vorgabe, dann deren Text anzeigen
+        i=0
+        TIMER_FOUND=0
+        while [ $i -lt 3 ];
+        do
+          if [ "${NEW_TIMER_TEXT[$i]}" = "$CURRENT_TIMER" ];
+          then
+            TIMER_SHOW_NAME="${NEW_TIMER_NAME[$i]}"
+            TIMER_FOUND=1
+            break
+          fi
+          ((i+=1))
+        done
+        # 3. Wenn nur an speziellen Tagen (wöchentlich oder monatlich), dann auch den Wochentag dazu anzeigen
+        if [ $TIMER_FOUND -eq 0 ];
+        then
+          for wday in ${WEEKDAY_LIST[@]};
+          do
+            if [ ${#CURRENT_TIMER} -eq 4 ] &&
+               [ "${CURRENT_TIMER:0:4}" = "${wday}5" ];
+            then
+              TIMER_SHOW_NAME="${NEW_TIMER_NAME[4]}"
+              TIMER_SHOW_DAYS="jeden letzten ${WEEKDAY_NAMES[$wday]}"
+              break
+            else
+              if [ ${#CURRENT_TIMER} -eq 3 ] &&
+                 [ "${CURRENT_TIMER:0:3}" = "${wday}" ];
+              then
+                TIMER_SHOW_NAME="${NEW_TIMER_NAME[3]}"
+                TIMER_SHOW_DAYS="jeden ${WEEKDAY_NAMES[$wday]}"
+                break
+              fi
+            fi
+          done
+        fi
+      else
+        TIMER_SHOW_NAME="Snap-Standard"
+      fi
+      echo -e -n " Timer/Upgrade-Intervall: ${bold_yellow}${TIMER_SHOW_NAME/_/ }${colors_off}"
+      if [ "$TIMER_SHOW_DAYS" != "" ];
+      then
+        echo -e " ($TIMER_SHOW_DAYS)"
+      else
+        echo -e ""
+      fi
+      DATE_LAST=$(LANG=en_US.UTF-8 snap refresh --time --abs-time 2>/dev/null | grep -i -E "last")
+      DATE_LAST=$(echo ${DATE_LAST/last:/} | xargs)
+      DATE_HOLD=$(LANG=en_US.UTF-8 snap refresh --time --abs-time 2>/dev/null | grep -i -E "hold")
+      DATE_HOLD=$(echo ${DATE_HOLD/hold:/} | xargs)
+      DATE_NEXT=$(LANG=en_US.UTF-8 snap refresh --time --abs-time 2>/dev/null | grep -i -E "next")
+      DATE_NEXT=$(echo ${DATE_NEXT/next:/} | xargs)
+      echo -e -n " Letztes Upgrade : "
+      if [ $(echo ${DATE_LAST} | grep -i -c -E "n\/a") -gt 0 ];
+      then
+        DATE_LAST="noch nicht ermittelt"
+      else
+        DATE_LAST=$(date -d"$DATE_LAST" +"%d.%m.%Y %H:%M")
+      fi
+      echo -e "$DATE_LAST"
+      echo -e -n " Nächstes Upgrade: "
+      if [ "$DATE_HOLD" != "" ];
+      then
+        if [ $(echo ${DATE_HOLD} | grep -i -c -E "n\/a") -gt 0 ];
+        then
+          DATE_HOLD="noch nicht festgelegt"
+        else
+          DATE_HOLD=$(date -d"$DATE_HOLD" +"%d.%m.%Y %H:%M")
+        fi
+        echo -e "$DATE_HOLD (bis dahin ausgesetzt)"
+      else
+        if [ $(echo ${DATE_NEXT} | grep -i -c -E "n\/a") -gt 0 ];
+        then
+          DATE_NEXT="noch nicht festgelegt"
+        else
+          DATE_NEXT=$(date -d"$DATE_NEXT" +"%d.%m.%Y %H:%M")
+        fi
+        echo -e "$DATE_NEXT"
+      fi
+      echo -e ""
+      echo -e " ${bold_white}Was willst Du tun?${colors_off}"
+      echo -e " [${bold_yellow}R${colors_off}]evisionsanzahl ändern"
+      echo -e " [${bold_yellow}U${colors_off}]pgrade-Intervall ändern"
+      echo -e " [${bold_yellow}A${colors_off}]ussetzen von Upgrades"
+      echo -e " [${bold_yellow}Z${colors_off}]urück zum Menü (nichts ändern)"
+      echo -e ""
+      setterm -cursor off 2>/dev/null
+      CONF_ACTION=""
+      while [ "$CONF_ACTION" != "R" ] &&
+            [ "$CONF_ACTION" != "U" ] &&
+            [ "$CONF_ACTION" != "A" ] &&
+            [ "$CONF_ACTION" != "Z" ];
+      do
+        read -N 1 -s CONF_ACTION
+        CONF_ACTION="$(echo -n "$CONF_ACTION" | tr '[:lower:]' '[:upper:]')"
+      done
+      setterm -cursor on 2>/dev/null
+
+      # -----------------------------
+      # Anzahl der Revisionen ändern
+      # -----------------------------
+      if [ "$CONF_ACTION" = "R" ];
+      then
+        clear_menu
+        echo -e " ${bold_white}Revisionsanzahl ändern${colors_off}"
+        # Neue Anzahl eingeben
+        NEW_REV_COUNT=0
+        while [ $NEW_REV_COUNT -lt 2 ] ||
+              [ $NEW_REV_COUNT -gt 10 ];
+        do
+          read -p " Bitte neue Anzahl (von 2 bis 10) eingeben: " NEW_REV_COUNT
+          NEW_REV_COUNT=$(echo $NEW_REV_COUNT | sed 's/[^0-9]*//g')
+          if [ "$NEW_REV_COUNT" = "" ]; then NEW_REV_COUNT=0; fi
+        done
+        # Neuen Wert setzen
+        OLD_HOSTNAME="$(hostname)"
+        if [ ! "$OLD_HOSTNAME" = "" ];
+        then
+          # Für die dumme Snap-Verwaltung temporär den Hostnamen ändern
+          hostnamectl set-hostname "dummyhostname" &>/dev/null
+          if [ $? -eq 0 ];
+          then
+            snap set system refresh.retain=${NEW_REV_COUNT} &>/dev/null
+          fi
+          hostnamectl set-hostname "$OLD_HOSTNAME" &>/dev/null
+        fi
+      fi
+
+      # -------------------------
+      # Upgrade-Intervall ändern
+      # -------------------------
+      if [ "$CONF_ACTION" = "U" ];
+      then
+        clear_menu
+        echo -e " ${bold_white}Upgrade-Intervall ändern${colors_off}"
+        # Intervall auswählen
+        MAX_TIMER_IDX=${#NEW_TIMER_NAME[@]}
+        i=0
+        for timer_name in ${NEW_TIMER_NAME[@]};
+        do
+          echo -e " [${bold_yellow}$i${colors_off}] ${timer_name//_/ }"
+          ((i+=1))
+        done
+        echo -e " [${bold_yellow}Z${colors_off}] Zurück (nicht ändern)"
+        setterm -cursor off 2>/dev/null
+        NEW_TIMER_IDX=-1
+        while [ $NEW_TIMER_IDX -lt 0 ] ||
+              [ $NEW_TIMER_IDX -ge $MAX_TIMER_IDX ];
+        do
+          read -N 1 -s NEW_TIMER_IDX
+          NEW_TIMER_IDX=$(echo $NEW_TIMER_IDX | sed 's/[^0-9zZ]*//g')
+          if [ "$NEW_TIMER_IDX" = "" ]; then NEW_TIMER_IDX=-1; fi
+        done
+        setterm -cursor on 2>/dev/null
+        if [ "$NEW_TIMER_IDX" != "z" ] &&
+           [ "$NEW_TIMER_IDX" != "Z" ];
+        then
+          NEW_TIMER_VALUE="${NEW_TIMER_TEXT[$NEW_TIMER_IDX]}"
+          # Bei wöchentlich und monatlich zusätzlich den Wochentag auswählen
+          if [ $NEW_TIMER_IDX -eq 3 ] ||
+             [ $NEW_TIMER_IDX -eq 4 ];
+          then
+            echo -e ""
+            echo -e " ${bold_white}Bitte Wochentag auswählen${colors_off}"
+            i=0
+            for wday in ${WEEKDAY_LIST[@]};
+            do
+              WEEKDAY_ABBR=${WEEKDAY_LIST[$i]}
+              echo -e " [${bold_yellow}$i${colors_off}] ${WEEKDAY_NAMES[$WEEKDAY_ABBR]}"
+              ((i+=1))
+            done
+            setterm -cursor off 2>/dev/null
+            NEW_WDAY_IDX=-1
+            while [ $NEW_WDAY_IDX -lt 0 ] ||
+                  [ $NEW_WDAY_IDX -gt 6 ];
+            do
+              read -N 1 -s NEW_WDAY_IDX
+              NEW_WDAY_IDX=$(echo $NEW_WDAY_IDX | sed 's/[^0-9]*//g')
+              if [ "$NEW_WDAY_IDX" = "" ]; then NEW_WDAY_IDX=-1; fi
+            done
+            setterm -cursor on 2>/dev/null
+            NEW_TIMER_VALUE=${WEEKDAY_LIST[$NEW_WDAY_IDX]}
+            if [ $NEW_TIMER_IDX -eq 4 ];
+            then
+              NEW_TIMER_VALUE+="5" # Bei monatlichem Upgrade den letzten Wochentag im Monat
+            fi
+          fi
+          # Individuelle Eingabe
+          if [ $NEW_TIMER_IDX -eq 5 ];
+          then
+            echo -e ""
+            echo -e " ${bold_white}Individuelle Angabe${colors_off}"
+            read -e -i "$CURRENT_TIMER" -p " Bitte eingeben: " NEW_TIMER_VALUE
+          fi
+          # Neuen Wert setzen
+          OLD_HOSTNAME="$(hostname)"
+          if [ ! "$OLD_HOSTNAME" = "" ];
+          then
+            # Für die dumme Snap-Verwaltung temporär den Hostnamen ändern
+            hostnamectl set-hostname "dummyhostname" &>/dev/null
+            if [ $? -eq 0 ];
+            then
+              snap set system refresh.timer=${NEW_TIMER_VALUE} &>/dev/null
+              # Wenn kein Wert eingegeben wurde (leer), dann Parameter komplett löschen
+              # (was aktuell noch keinen Unterschied macht, weil das dumme Snap seinen eigenen
+              #  Befehl "unset" nicht vollständig ausführt, dies aber zukünftig so sein soll)
+              if [ "${NEW_TIMER_VALUE}" = "" ];
+              then
+                snap unset system refresh.timer &>/dev/null
+              fi
+            fi
+            hostnamectl set-hostname "$OLD_HOSTNAME" &>/dev/null
+          fi
+        fi
+      fi
+
+      # -----------------------
+      # Aussetzen von Upgrades
+      # -----------------------
+      if [ "$CONF_ACTION" = "A" ];
+      then
+        clear_menu
+        echo -e " ${bold_white}Aussetzen von Upgrades${colors_off}"
+        # Neue Anzahl eingeben
+        NEW_HOLD_DAYS=-1
+        while [ $NEW_HOLD_DAYS -lt 0 ] ||
+              [ $NEW_HOLD_DAYS -gt 90 ];
+        do
+          read -p " Bitte Anzahl Tage angeben (1 bis 90, 0/Leer für kein Aussetzen): " NEW_HOLD_DAYS
+          NEW_HOLD_DAYS=$(echo $NEW_HOLD_DAYS | sed 's/[^0-9]*//g')
+          if [ "$NEW_HOLD_DAYS" = "" ]; then NEW_HOLD_DAYS=0; fi
+        done
+        # Neuen Wert setzen
+        OLD_HOSTNAME="$(hostname)"
+        if [ ! "$OLD_HOSTNAME" = "" ];
+        then
+          # Für die dumme Snap-Verwaltung temporär den Hostnamen ändern
+          hostnamectl set-hostname "dummyhostname" &>/dev/null
+          if [ $? -eq 0 ];
+          then
+            if [ $NEW_HOLD_DAYS -eq 0 ];
+            then
+              snap set system refresh.hold="" &>/dev/null
+              # Wenn kein gültiger Wert eingegeben wurde (0 oder leer), dann Parameter löschen
+              # (was aktuell noch keinen Unterschied macht, weil das dumme Snap seinen eigenen
+              #  Befehl "unset" nicht vollständig ausführt, dies aber zukünftig so sein soll)
+              snap unset system refresh.hold &>/dev/null
+            else
+              THE_NEW_DATE=$(date --date="+${NEW_HOLD_DAYS} days" +%Y-%m-%dT%H:%M:%S%:z)
+              snap set system refresh.hold=${THE_NEW_DATE} &>/dev/null
+            fi
+          fi
+          hostnamectl set-hostname "$OLD_HOSTNAME" &>/dev/null
+        fi
+      fi
+
+    done
+    show_headlines
+
+  fi # Ende Konfiguration
+
+  # ===========================================================================
+  # Bereinigung
+  # ===========================================================================
+  if [ "$SCRIPT_ACTION" = "B" ];
+  then
+    show_headlines
+    # -------------------------------------------------------------------------
+    # Liste der veralteten Snaps einlesen
+    # (In diesem Fall mit Umweg über eine Datei, damit wir die Liste vor der
+    # Anzeige überprüfen und ohne Änderung auch zum Löschen verwenden können)
+    # -------------------------------------------------------------------------
+    DISABLED_SNAPS_LIST="./snap_disabled_list"
+    if [ -f "$DISABLED_SNAPS_LIST" ]; then rm -f "$DISABLED_SNAPS_LIST" &>/dev/null; fi
+    LANG=en_US.UTF-8 snap list --all | awk '/disabled/' |
+    while read snapname snapversion snaprevision snaptracking snapvendor snapstatus;
+    do
+      # Bei kaputten Snaps wird keine Versions-Nummer angezeigt (Snap ist soo blöd),
+      # in diesem Fall die dadurch verursachte Verschiebung korrigieren ...
+      BROKEN_SNAP=0
+      if [ $(echo $snapvendor | grep -i -c -E "broken") -gt 0 ];
+      then
+        BROKEN_SNAP=1
+        snapstatus="$snapvendor"
+        snapvendor="$snaptracking"
+        snaptracking="$snaprevision"
+        snaprevision="$snapversion"
+        snapversion="BROKEN"
+      fi
+      echo -e "$snapname (V$snapversion) (R$snaprevision)" >> "$DISABLED_SNAPS_LIST"
+    done
+    echo -e " ${bold_blue}Veraltete und nicht mehr verwendete Revisionen${colors_off}"
+    echo -e ""
+    if [ -s "$DISABLED_SNAPS_LIST" ];
+    then
+      echo -e " ${bold_white}Snap                     Version                     Revision   Größe${colors_off}"
+      TOTAL_SIZE=0
+      MAX_DISABLED_NAME=0
+      while read snapname snapversion snaprevision
+      do
+        # Name
+        SNAP_PKG_NAME="$snapname"
+        echo -e -n " ${SNAP_PKG_NAME:0:25}"
+        ((ANZ_SPACES=26-${#SNAP_PKG_NAME}))
+        insert_spaces $ANZ_SPACES
+        # Version
+        SNAP_VERSION="${snapversion/(V/}"
+        SNAP_VERSION="${SNAP_VERSION/)/}"
+        echo -e -n "${SNAP_VERSION:0:28}"
+        ((ANZ_SPACES=29-${#SNAP_VERSION}))
+        insert_spaces $ANZ_SPACES
+        # Revision
+        SNAP_REVISION="${snaprevision/(R/}"
+        SNAP_REVISION="${SNAP_REVISION/)/}"
+        echo -e -n "${SNAP_REVISION:0:12}"
+        ((ANZ_SPACES=12-${#SNAP_REVISION}))
+        insert_spaces $ANZ_SPACES
+        # Größe
+        FULL_SNAP_PATH="/var/lib/snapd/snaps/${SNAP_PKG_NAME}_${SNAP_REVISION}.snap"
+        # ALT: SNAP_SIZE=$(ls -l "$FULL_SNAP_PATH" | awk '{print $5}' | xargs)
+        SNAP_SIZE=$(stat -c %s "$FULL_SNAP_PATH")
+        ((SNAP_SIZE=SNAP_SIZE/1024/1024))
+        ((TOTAL_SIZE+=SNAP_SIZE))
+        if [ $SNAP_SIZE -lt 1 ]; then SNAP_SIZE=1; fi
+        echo -e "${light_yellow}$SNAP_SIZE${colors_off} MB"
+        NEW_LENGTH=0
+        ((NEW_LENGTH+=${#SNAP_PKG_NAME}))
+        ((NEW_LENGTH+=${#SNAP_REVISION}))
+        if [ $NEW_LENGTH -gt $MAX_DISABLED_NAME ];
+        then
+          MAX_DISABLED_NAME=$NEW_LENGTH
+        fi
+      done < "$DISABLED_SNAPS_LIST"
+      echo -e ""
+      echo -e " Von nicht mehr benutzten Snaps belegter Speicherplatz insgesamt ${bold_yellow}$TOTAL_SIZE MB${colors_off}"
+      echo -e ""
+      # -----------------------------------------------------------------------
+      # Veraltete Snaps löschen
+      # -----------------------------------------------------------------------
+      ask_yes_or_no " Jetzt alle nicht mehr benutzten Revisionen löschen"
+      if [ $? -eq 1 ];
+      then
+        echo -e " ${bold_yellow}ACHTUNG:${colors_off} Diese Aktion kann nicht wieder rückgängig gemacht werden!"
+        ask_yes_or_no " Wirklich alle oben aufgeführten Revisionen löschen"
+        if [ $? -eq 1 ];
+        then
+          echo -e " OK - alle unbenutzten Snaps löschen, bitte warten ..."
+          while read snapname snapversion snaprevision
+          do
+            SNAP_PKG_NAME="$snapname"
+            SNAP_REVISION="${snaprevision/(R/}"
+            SNAP_REVISION="${SNAP_REVISION/)/}"
+            echo -e -n " Lösche Snap ${light_cyan}$snapname${colors_off} (Revision ${light_purple}$SNAP_REVISION${colors_off})"
+            ANZ_SPACES=(MAX_DISABLED_NAME+1)
+            ((ANZ_SPACES-=${#snapname}))
+            ((ANZ_SPACES-=${#SNAP_REVISION}))
+            insert_spaces $ANZ_SPACES
+            echo -e -n " ... "
+            snap remove "$snapname" --purge --revision="$SNAP_REVISION" &>/dev/null
+            if [ $? -eq 0 ];
+            then
+              echo -e "$OK_TAG"
+            else # Bei Fehlern war es möglicherweise noch die alte Snap-Version ohne "purge" ...
+              snap remove "$snapname" --revision="$SNAP_REVISION" &>/dev/null
+              if [ $? -eq 0 ];
+              then
+                echo -e "$OK_TAG"
+              else
+                echo -e "$ERROR_TAG"
+              fi
+            fi
+          done < "$DISABLED_SNAPS_LIST"
+        fi
+      fi
+    else
+      echo -e " Sauber, es wurden ${bold_green}keine${colors_off} unbenutzten Snaps gefunden :)"
+    fi
+    echo -e ""
+    echo -e "$FULL_LINE"
+    echo -e ""
+    # -------------------------------------------------------------------------
+    # Liste der Schnappschüsse einlesen
+    # -------------------------------------------------------------------------
+    create_snapshot_list
+    echo -e "${bold_blue} Gespeicherte Schnappschüsse${colors_off}"
+    echo -e ""
+    if [ -s "$SNAPSHOT_SNAPS_LIST" ];
+    then
+      show_snapshot_list 1
+      ((TOTAL_SIZE+=524288)) # Zur korrekten Rundung 1/2 MB hinzufügen
+      ((TOTAL_SIZE=TOTAL_SIZE/1024/1024))
+      echo -e ""
+      echo -e " Durch Schnappschüsse von Snaps belegter Speicherplatz insgesamt ${bold_yellow}$TOTAL_SIZE MB${colors_off}"
+      echo -e ""
+      # -----------------------------------------------------------------------
+      # Schnappschüsse löschen
+      # -----------------------------------------------------------------------
+      ask_yes_or_no " Jetzt alle Snap-Schnappschüsse löschen"
+      if [ $? -eq 1 ];
+      then
+        echo -e " ${bold_yellow}ACHTUNG:${colors_off} Diese Aktion kann nicht wieder rückgängig gemacht werden!"
+        ask_yes_or_no " Wirklich alle oben aufgeführten Schnappschüsse löschen"
+        if [ $? -eq 1 ];
+        then
+          echo -e " OK - alle Snap-Schnappschüsse löschen, bitte warten ..."
+          while read snapset snapname snapage snapversion snaprevision snapsize
+          do
+            echo -e -n " Lösche Schnappschuss von ${light_cyan}$snapname${colors_off} (SET ${light_purple}$snapset${colors_off})"
+            ANZ_SPACES=(MAX_SNAPSHOT_NAME+1)
+            ((ANZ_SPACES-=${#snapname}))
+            ((ANZ_SPACES-=${#snapset}))
+            insert_spaces $ANZ_SPACES
+            echo -e -n " ... "
+            # echo -e "snap forget $snapset $snapname &>/dev/null" # NUR ZUM TESTEN
+            snap forget "$snapset" "$snapname" &>/dev/null
+            if [ $? -eq 0 ];
+            then
+              echo -e "$OK_TAG"
+            else
+              echo -e "$ERROR_TAG"
+            fi
+          done < "$SNAPSHOT_SNAPS_LIST"
+        fi
+      fi
+    else
+      echo -e " Sauber, es wurden ${bold_green}keine${colors_off} Snap-Schnappschüsse gefunden :)"
+    fi
+    echo -e ""
+    echo -e "$FULL_LINE"
+    echo -e ""
+  fi # Ende Bereinigung
+
+  # =============================================================================
+  # Auflistung
+  # =============================================================================
+  if [ "$SCRIPT_ACTION" = "A" ];
+  then
+    show_headlines
+    echo -e " ${bold_blue}Auslistung aller installierten Snap-Pakete${colors_off}"
+    echo -e ""
+    echo -e " ${bold_white}Snap                     Version                     Rev    Herausgeber${colors_off}"
+    LANG=en_US.UTF-8 snap list --all | awk 'NR>1' |
+    while read snapname snapversion snaprevision snaptracking snapvendor snapstatus;
+    do
+      # Bei kaputten Snaps wird keine Versions-Nummer angezeigt (Snap ist soo blöd),
+      # in diesem Fall die dadurch verursachte Verschiebung korrigieren ...
+      BROKEN_SNAP=0
+      if [ $(echo $snapvendor | grep -i -c -E "broken") -gt 0 ];
+      then
+        BROKEN_SNAP=1
+        snapstatus="$snapvendor"
+        snapvendor="$snaptracking"
+        snaptracking="$snaprevision"
+        snaprevision="$snapversion"
+        snapversion="BROKEN"
+      fi
+      if [ $BROKEN_SNAP -eq 1 ];
+      then
+        echo -e -n " ${light_red}"
+      else
+        if [ $(echo "$snapstatus" | grep -i -c -E "deaktiv") -gt 0 ] ||
+           [ $(echo "$snapstatus" | grep -i -c -E "disabled") -gt 0 ];
+        then
+          echo -e -n " ${light_yellow}"
+        else
+          echo -e -n " ${light_green}"
+        fi
+      fi
+      # Name
+      SNAP_PKG_NAME="${snapname:0:25}"
+      echo -e -n "$SNAP_PKG_NAME"
+      ((ANZ_SPACES=26-${#SNAP_PKG_NAME}))
+      insert_spaces $ANZ_SPACES
+      # Version
+      SNAP_VERSION="${snapversion:0:28}"
+      echo -e -n "$SNAP_VERSION"
+      ((ANZ_SPACES=29-${#SNAP_VERSION}))
+      insert_spaces $ANZ_SPACES
+      # Revision
+      SNAP_REVISION="${snaprevision:0:7}"
+      echo -e -n "$SNAP_REVISION"
+      ((ANZ_SPACES=8-${#SNAP_REVISION}))
+      insert_spaces $ANZ_SPACES
+      # Vendor
+      SNAP_VENDOR="${snapvendor//\*/}"
+      SNAP_VENDOR="${SNAP_VENDOR:0:17}"
+      echo -e -n "$SNAP_VENDOR"
+      echo -e "${colors_off}"
+    done
+    echo -e ""
+    echo -e " ${light_green}grün = derzeit verwendete Revision"
+    echo -e " ${light_yellow}gelb = veraltet, nicht mehr in Benutzung"
+    echo -e " ${light_red}rot  = defekt, nicht mehr in Benutzung${colors_off}"
+    echo -e ""
+    echo -e "$FULL_LINE"
+    echo -e ""
+
+    create_snapshot_list
+    if [ -s "$SNAPSHOT_SNAPS_LIST" ];
+    then
+      echo -e "${bold_blue} Gespeicherte Schnappschüsse${colors_off}"
+      echo -e ""
+      show_snapshot_list 0
+    echo -e ""
+      echo -e "$FULL_LINE"
+      echo -e ""
+    fi
+
+  fi # Ende Auflistung
+
+  # ---------------------------------------------------------------------------
+  # Auswahlmenü
+  # ---------------------------------------------------------------------------
+  setterm -cursor off 2>/dev/null
+  echo -e " ${bold_white}Auswahlmenü${colors_off}"
+  echo -e " [${bold_yellow}A${colors_off}]uflistung"
+  echo -e " [${bold_yellow}B${colors_off}]ereinigung"
+  echo -e " [${bold_yellow}K${colors_off}]onfiguration"
+  echo -e " [${bold_yellow}E${colors_off}]nde"
+  SCRIPT_ACTION=""
+  while [ "$SCRIPT_ACTION" != "K" ] &&
+        [ "$SCRIPT_ACTION" != "B" ] &&
+        [ "$SCRIPT_ACTION" != "A" ] &&
+        [ "$SCRIPT_ACTION" != "E" ];
+  do
+    read -N 1 -s SCRIPT_ACTION
+    SCRIPT_ACTION="$(echo -n "$SCRIPT_ACTION" | tr '[:lower:]' '[:upper:]')"
+  done
+  setterm -cursor on 2>/dev/null
+  # ---------------------------------------------------------------------------
+
+done
+
+# =============================================================================
+# Aufräumen
+# =============================================================================
+if [ -f "$DISABLED_SNAPS_LIST" ]; then rm -f "$DISABLED_SNAPS_LIST" &>/dev/null; fi
+if [ -f "$SNAPSHOT_SNAPS_LIST" ]; then rm -f "$SNAPSHOT_SNAPS_LIST" &>/dev/null; fi
+echo -e ""
+echo -e "$FULL_LINE"
+echo -e " Auf Wiedersehen ..."
+echo -e "$FULL_LINE"
